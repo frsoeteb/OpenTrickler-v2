@@ -22,12 +22,18 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
 
-    - name: Clone Pico SDK 2.0.0 (for RP2350/Pico2W)
+    - name: Setup Pico SDK with RP2350/Pico2W support
       run: |
-        echo "Cloning Pico SDK 2.0.0 (replaces submodule)..."
+        echo "Cloning latest Pico SDK..."
         rm -rf library/pico-sdk
-        git clone --depth 1 --branch 2.0.0 https://github.com/raspberrypi/pico-sdk.git library/pico-sdk
-        echo "Pico SDK cloned. CMake will initialize required submodules during build."
+        git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git library/pico-sdk
+        cd library/pico-sdk
+        echo "Initializing essential SDK submodules (excluding broken TinyUSB)..."
+        git submodule update --init --depth 1 lib/btstack
+        git submodule update --init --depth 1 lib/cyw43-driver
+        git submodule update --init --depth 1 lib/lwip
+        git submodule update --init --depth 1 lib/mbedtls
+        echo "SDK ready (CMake will handle remaining dependencies)"
         
     - name: Build for Pico 2W
       run: |
