@@ -20,11 +20,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
         
-    - name: Download Pico SDK 2.0.0
+    - name: Download Pico SDK (latest with RP2350)
       run: |
-        echo "Downloading Pico SDK 2.0.0 for RP2350 support..."
+        echo "Downloading latest Pico SDK with RP2350/Pico2W support..."
         rm -rf library/pico-sdk
-        git clone --depth 1 --branch 2.0.0 https://github.com/raspberrypi/pico-sdk.git library/pico-sdk
+        git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git library/pico-sdk
         cd library/pico-sdk
         git submodule update --init
         
