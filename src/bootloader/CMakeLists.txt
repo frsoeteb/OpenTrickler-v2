@@ -46,6 +46,9 @@ pico_enable_stdio_uart(${BOOTLOADER_TARGET} 0)
 # Generate extra output formats (bin, hex, uf2)
 pico_add_extra_outputs(${BOOTLOADER_TARGET})
 
+# Disable binary info to save space (bootloader is size-constrained)
+target_compile_definitions(${BOOTLOADER_TARGET} PRIVATE PICO_NO_BINARY_INFO=1)
+
 # Compiler optimizations
 target_compile_options(${BOOTLOADER_TARGET} PRIVATE
     -Wall
