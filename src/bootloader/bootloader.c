@@ -132,8 +132,8 @@ static bool validate_firmware_bank(firmware_bank_t bank, const firmware_metadata
 static void __attribute__((noreturn)) jump_to_firmware(uint32_t firmware_address) {
     printf("Jumping to firmware at 0x%08lx\n\n", firmware_address);
 
-    // Disable interrupts
-    __disable_irq();
+    // Disable interrupts (inline assembly works for both M0+ and M33)
+    __asm volatile ("cpsid i" ::: "memory");
 
     // Set VTOR to firmware vector table
     scb_hw->vtor = firmware_address;

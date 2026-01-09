@@ -47,9 +47,8 @@ FloatRingBuffer::FloatRingBuffer(const size_t size)
 
     if (data == nullptr) {
         // CRITICAL: Out of memory
-        // Set buffer_size to 0 to prevent any operations
-        buffer_size = 0;
         // Note: Caller should check isValid() before using
+        // buffer_size remains set from initializer list
     }
 }
 
