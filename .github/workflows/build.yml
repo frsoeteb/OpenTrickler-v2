@@ -14,22 +14,17 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        submodules: true
 
     - name: Install ARM toolchain
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
 
-    - name: Initialize required submodules
-      run: |
-        echo "Initializing project submodules (FreeRTOS, u8g2, Trinamic)..."
-        git submodule update --init library/FreeRTOS-Kernel
-        git submodule update --init library/u8g2
-        git submodule update --init library/Trinamic-library
-
     - name: Clone Pico SDK 2.0.0 (for RP2350/Pico2W)
       run: |
-        echo "Cloning Pico SDK 2.0.0..."
+        echo "Cloning Pico SDK 2.0.0 (replaces submodule)..."
         rm -rf library/pico-sdk
         git clone --depth 1 --branch 2.0.0 https://github.com/raspberrypi/pico-sdk.git library/pico-sdk
         echo "Pico SDK cloned. CMake will initialize required submodules during build."
