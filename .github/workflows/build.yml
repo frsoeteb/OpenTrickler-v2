@@ -32,7 +32,7 @@ jobs:
       run: |
         mkdir build
         cd build
-        cmake .. -DPICO_BOARD=pico2_w -DBUILD_OTA_BOOTLOADER=ON -DUSE_OTA_LINKER_SCRIPT=ON -DOTA_TEST_MODE=OFF
+        cmake .. -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2_w -DBUILD_OTA_BOOTLOADER=ON -DUSE_OTA_LINKER_SCRIPT=ON -DOTA_TEST_MODE=OFF
         make -j$(nproc)
         
     - name: Upload firmware artifacts
