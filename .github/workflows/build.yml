@@ -17,6 +17,13 @@ jobs:
       with:
         submodules: true
 
+    - name: Update submodules to latest
+      run: |
+        echo "Updating FreeRTOS, u8g2, Trinamic to latest versions..."
+        git submodule update --remote library/FreeRTOS-Kernel
+        git submodule update --remote library/u8g2
+        git submodule update --remote library/Trinamic-library
+
     - name: Install ARM toolchain
       run: |
         sudo apt-get update
