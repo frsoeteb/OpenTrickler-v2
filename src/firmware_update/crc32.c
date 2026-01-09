@@ -1,5 +1,6 @@
 #include "crc32.h"
 #include <string.h>
+#include <stdbool.h>
 
 /**
  * CRC32 Implementation with Table Lookup

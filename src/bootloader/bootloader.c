@@ -2,7 +2,6 @@
 #include "flash_partitions.h"
 #include "../firmware_update/flash_ops.h"
 #include "../firmware_update/crc32.h"
-#include "hardware/regs/m0plus.h"
 #include "hardware/structs/scb.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
