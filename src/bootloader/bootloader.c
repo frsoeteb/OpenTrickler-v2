@@ -104,6 +104,16 @@ static bool validate_firmware_bank(firmware_bank_t bank, const firmware_metadata
         return false;
     }
 
+    // SPECIAL CASE: First boot after combined.uf2 flash
+    // Metadata exists but size/CRC32 are zero (factory defaults)
+    // Skip validation and trust firmware is present
+    if (expected_size == 0 && expected_crc32 == 0) {
+        printf("Bank %s: First boot detected (size=0, crc32=0), skipping validation\n",
+               (bank == BANK_A) ? "A" : "B");
+        printf("WARNING: Firmware will initialize metadata on first run\n");
+        return true;  // Trust firmware is present
+    }
+
     // Check size is reasonable
     if (expected_size == 0 || expected_size > bank_get_size(bank)) {
         printf("Bank %s invalid size: %lu\n", (bank == BANK_A) ? "A" : "B", expected_size);
