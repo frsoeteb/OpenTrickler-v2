@@ -52,6 +52,9 @@ jobs:
       with:
         name: firmware-pico2w
         path: |
+          build/src/bootloader/bootloader.uf2
+          build/src/bootloader/bootloader.bin
+          build/src/bootloader/bootloader.elf
           build/app.uf2
           build/app.bin
           build/app.elf
@@ -69,6 +72,9 @@ jobs:
       with:
         name: firmware-picow
         path: |
+          build/src/bootloader/bootloader.uf2
+          build/src/bootloader/bootloader.bin
+          build/src/bootloader/bootloader.elf
           build/app.uf2
           build/app.bin
           build/app.elf
