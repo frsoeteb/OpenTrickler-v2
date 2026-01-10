@@ -2,6 +2,7 @@
 #include "flash_ops.h"
 #include "crc32.h"
 #include "hardware/watchdog.h"
+#include "pico/time.h"
 #include <stdio.h>
 #include <string.h>
 

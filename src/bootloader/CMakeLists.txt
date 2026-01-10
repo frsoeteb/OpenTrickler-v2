@@ -30,19 +30,13 @@ target_include_directories(${BOOTLOADER_TARGET} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../firmware_update
 )
 
-# Link libraries (minimal set, excluding pico_stdlib to avoid binary info)
+# Link libraries - pico_stdlib is OK because PICO_NO_BINARY_INFO=1 prevents binary info generation
 target_link_libraries(${BOOTLOADER_TARGET}
-    pico_platform
-    pico_runtime
-    pico_printf
-    pico_stdio
-    pico_stdio_usb
+    pico_stdlib
     hardware_flash
     hardware_sync
     hardware_watchdog
     hardware_gpio
-    hardware_uart
-    hardware_timer
 )
 
 # Use custom linker script

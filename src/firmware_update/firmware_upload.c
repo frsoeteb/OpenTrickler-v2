@@ -1,6 +1,7 @@
 #include "firmware_upload.h"
 #include "firmware_manager.h"
 #include "lwip/apps/httpd.h"
+#include "lwip/mem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

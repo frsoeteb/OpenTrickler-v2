@@ -145,6 +145,9 @@ target_link_libraries("${TARGET_NAME}"
     # pico_lwip_http
 )
 
+# Disable binary info for application (556KB binary is too large for binary info in first 256 bytes)
+target_compile_definitions("${TARGET_NAME}" PRIVATE PICO_NO_BINARY_INFO=1)
+
 target_link_options("${TARGET_NAME}" PUBLIC -Wl,--gc-sections -Wl,--print-memory-usage)
 # set( CMAKE_VERBOSE_MAKEFILE on )
 
