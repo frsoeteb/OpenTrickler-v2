@@ -24,7 +24,7 @@ UF2_MAGIC_START0 = 0x0A324655
 UF2_MAGIC_START1 = 0x9E5D5157
 UF2_MAGIC_END = 0x0AB16F30
 UF2_FLAG_FAMILY_ID = 0x00002000
-RP2350_FAMILY_ID = 0xe48bff56  # RP2040 and RP2350 use same family ID
+RP2XXX_ABSOLUTE_FAMILY_ID = 0xe48bff57  # RP2XXX_ABSOLUTE - works for both RP2040 and RP2350
 UF2_BLOCK_SIZE = 512
 UF2_DATA_SIZE = 256  # Standard page size for Pico
 
@@ -46,7 +46,7 @@ def create_uf2_block(address, data, block_no, total_blocks):
         UF2_DATA_SIZE,
         block_no,
         total_blocks,
-        RP2350_FAMILY_ID
+        RP2XXX_ABSOLUTE_FAMILY_ID
     )
 
     # Data payload (pad to 256 bytes if needed)
