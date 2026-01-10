@@ -21,7 +21,7 @@ UF2_MAGIC_START0 = 0x0A324655
 UF2_MAGIC_START1 = 0x9E5D5157
 UF2_MAGIC_END = 0x0AB16F30
 UF2_BLOCK_SIZE = 512
-UF2_DATA_SIZE = 256
+UF2_DATA_SIZE = 476  # Full payload area (not just 256 used bytes)
 
 def parse_uf2_block(block_data):
     """Parse a UF2 block and return its components"""
@@ -36,8 +36,9 @@ def parse_uf2_block(block_data):
     if magic_start0 != UF2_MAGIC_START0 or magic_start1 != UF2_MAGIC_START1:
         raise ValueError(f"Invalid UF2 magic: 0x{magic_start0:08X} 0x{magic_start1:08X}")
 
-    # Extract data payload
-    data_payload = block_data[32:32+UF2_DATA_SIZE]
+    # Extract FULL data payload area (32-507 = 476 bytes)
+    # This preserves both used data and any padding/alignment bytes
+    data_payload = block_data[32:508]
 
     # Verify final magic
     final_magic = struct.unpack('<I', block_data[508:512])[0]
@@ -70,10 +71,10 @@ def create_uf2_block(block_info, new_block_no, new_total_blocks):
         block_info['file_size']
     )
 
-    # Copy data payload
-    block[32:32+UF2_DATA_SIZE] = block_info['data']
+    # Copy FULL data payload area (476 bytes from offset 32-507)
+    block[32:508] = block_info['data']
 
-    # Pack final magic
+    # Pack final magic at offset 508
     struct.pack_into('<I', block, 508, UF2_MAGIC_END)
 
     return bytes(block)
@@ -126,7 +127,7 @@ def main():
     combined_blocks = bootloader_blocks + app_blocks
     total_blocks = len(combined_blocks)
     print(f"  - Total blocks: {total_blocks}")
-    print(f"  - Total size: {total_blocks * UF2_BLOCK_SIZE} bytes ({total_blocks * UF2_DATA_SIZE} bytes of data)")
+    print(f"  - Total size: {total_blocks * UF2_BLOCK_SIZE} bytes (UF2 file)")
 
     print(f"\nWriting {output_file} with corrected block numbers...")
     write_uf2(output_file, combined_blocks)
