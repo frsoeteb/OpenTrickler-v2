@@ -12,6 +12,9 @@ message("CMAKE_SOURCE_DIR: ${CMAKE_SOURCE_DIR}")
 set(ENV{PICO_SDK_PATH} "${CMAKE_SOURCE_DIR}/library/pico-sdk")
 set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
 
+# CRITICAL: Disable binary info BEFORE including SDK so SDK libraries respect it
+add_compile_definitions(PICO_NO_BINARY_INFO=1)
+
 # Include the Pico SDK
 include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
 
