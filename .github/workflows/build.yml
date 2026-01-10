@@ -40,29 +40,18 @@ jobs:
         git submodule update --init --depth 1 lib/mbedtls
         echo "SDK ready (CMake will handle remaining dependencies)"
         
-    - name: Build for Pico 2W
+    - name: Build for Pico 2W (standard build, no OTA)
       run: |
         mkdir build
         cd build
-        cmake .. -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2_w -DBUILD_OTA_BOOTLOADER=ON -DUSE_OTA_LINKER_SCRIPT=ON -DOTA_TEST_MODE=OFF
+        cmake .. -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2_w -DBUILD_OTA_BOOTLOADER=OFF -DUSE_OTA_LINKER_SCRIPT=OFF -DOTA_TEST_MODE=OFF
         make -j$(nproc)
-
-    - name: Create combined image for Pico 2W
-      run: |
-        python3 create_combined_uf2.py \
-          build/src/bootloader/bootloader.uf2 \
-          build/app.uf2 \
-          build/combined.uf2
 
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
         name: firmware-pico2w
         path: |
-          build/combined.uf2
-          build/src/bootloader/bootloader.uf2
-          build/src/bootloader/bootloader.bin
-          build/src/bootloader/bootloader.elf
           build/app.uf2
           build/app.bin
           build/app.elf
