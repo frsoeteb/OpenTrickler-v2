@@ -1,71 +1,49 @@
-name: Auto Release Build
+name: WiFi Test Build
 
-run-name: Build based on ${{ github.ref }} by @${{ github.actor }}
-
+run-name: Build wifi-test-working by @${{ github.actor }}
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
-
-# env:
-#   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
-#   PICO_BOARD: pico_w
 
 jobs:
   build:
-    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
-    # You can convert this to a matrix build if you need cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
-      with: 
-        fetch-depth: 0          # Fetch all branches and tags
-        submodules: recursive   # Automatically pull all submodules
-      
+
     - name: Install Build Dependencies
-      run: | 
+      run: |
         sudo apt-get update
         sudo apt install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential libstdc++-arm-none-eabi-newlib python3
 
-    # Build Pico2 W support package into build_pico2_w
-    - name: Build Pico2 W Package
+    - name: Clone pico-sdk
       run: |
-        cmake -B ${{github.workspace}}/build_pico2_w -DCMAKE_BUILD_TYPE=Debug -DPICO_BOARD=pico2_w
-        cmake --build ${{github.workspace}}/build_pico2_w --config Debug
+        git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git library/pico-sdk
+        cd library/pico-sdk
+        git submodule update --init --depth 1 lib/btstack
+        git submodule update --init --depth 1 lib/cyw43-driver
+        git submodule update --init --depth 1 lib/lwip
+        git submodule update --init --depth 1 lib/mbedtls
 
-    - name: Archive Debug Artifact
-      uses: actions/upload-artifact@v4
-      with: 
-        name: pico2_w_package
-        path: |
-          src/generated/version.c  
-          build_pico2_w/*.bin
-          build_pico2_w/*.dis
-          build_pico2_w/*.elf
-          build_pico2_w/*.map
-          build_pico2_w/*.hex
-          build_pico2_w/*.uf2
-
-    # Build Pico W support package into build_pico_w
-    - name: Build Pico W Package
+    - name: Build WiFi Test for Pico 2W
       run: |
-        cmake -B ${{github.workspace}}/build_pico_w -DCMAKE_BUILD_TYPE=Debug -DPICO_BOARD=pico_w
-        cmake --build ${{github.workspace}}/build_pico_w --config Debug
+        cd wifi-test-working
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug -DPICO_BOARD=pico2_w
+        cmake --build build --config Debug
 
-    - name: Archive Debug Artifact
+    - name: Archive WiFi Test Artifact
       uses: actions/upload-artifact@v4
-      with: 
-        name: pico_w_package
+      with:
+        name: wifi-test-pico2w
         path: |
-          src/generated/version.c  
-          build_pico_w/*.bin
-          build_pico_w/*.dis
-          build_pico_w/*.elf
-          build_pico_w/*.map
-          build_pico_w/*.hex
-          build_pico_w/*.uf2
+          wifi-test-working/build/*.bin
+          wifi-test-working/build/*.dis
+          wifi-test-working/build/*.elf
+          wifi-test-working/build/*.map
+          wifi-test-working/build/*.hex
+          wifi-test-working/build/*.uf2
