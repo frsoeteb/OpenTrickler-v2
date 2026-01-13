@@ -348,7 +348,7 @@ int main() {
 
     // Initialize mDNS responder
     mdns_resp_init();
-    mdns_resp_add_netif(cyw43_state.netif[CYW43_ITF_AP], "opentrickler");
+    mdns_resp_add_netif(&cyw43_state.netif[CYW43_ITF_AP], "opentrickler");
     printf("mDNS responder started on opentrickler.local\n");
 
     #if LWIP_IPV6
@@ -397,7 +397,7 @@ int main() {
             cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA3_WPA2_AES_PSK);
 
             mdns_resp_init();
-            mdns_resp_add_netif(cyw43_state.netif[CYW43_ITF_AP], current_ssid);
+            mdns_resp_add_netif(&cyw43_state.netif[CYW43_ITF_AP], current_ssid);
             printf("mDNS responder restarted on %s.local\n", current_ssid);
 
             dhcp_server_init(&dhcp_server, &state->gw, &mask);
