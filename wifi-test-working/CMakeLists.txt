@@ -18,7 +18,7 @@ pico_sdk_init()
 
 # Pull in FreeRTOS
 set(FREERTOS_KERNEL_PATH "${CMAKE_SOURCE_DIR}/../library/FreeRTOS-Kernel")
-include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+include(FreeRTOS_Kernel_import.cmake)
 
 # Build the access point example (FreeRTOS version)
 add_executable(picow_access_point
