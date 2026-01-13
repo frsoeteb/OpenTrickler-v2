@@ -305,7 +305,7 @@ int main() {
     const char *password = NULL;
 #endif
 
-    cyw43_arch_enable_ap_mode(ap_name, password, CYW43_AUTH_WPA2_AES_PSK);
+    cyw43_arch_enable_ap_mode(ap_name, password, CYW43_AUTH_WPA3_WPA2_AES_PSK);
 
     // Initialize mDNS responder
     mdns_resp_init();
