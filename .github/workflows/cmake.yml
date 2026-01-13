@@ -32,7 +32,7 @@ jobs:
 
     - name: Clone FreeRTOS-Kernel
       run: |
-        git clone -b smp https://github.com/FreeRTOS/FreeRTOS-Kernel.git --recurse-submodules library/FreeRTOS-Kernel
+        git clone https://github.com/raspberrypi/FreeRTOS-Kernel.git --recurse-submodules library/FreeRTOS-Kernel
 
     - name: Build WiFi Test for Pico 2W
       run: |
