@@ -1,10 +1,10 @@
 /**
- * Copyright (c) 2022 Raspberry Pi (Trading) Ltd.
- *
- * SPDX-License-Identifier: BSD-3-Clause
+ * WiFi configuration page with SSID display and config form
  */
 
 #include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
@@ -14,22 +14,27 @@
 
 #include "dhcpserver.h"
 #include "dnsserver.h"
-#include "lwip/apps/mdns.h"
+#include "wifi_config.h"
 
 #define TCP_PORT 80
 #define DEBUG_printf printf
 #define POLL_TIME_S 5
 #define HTTP_GET "GET"
 #define HTTP_RESPONSE_HEADERS "HTTP/1.1 %d OK\nContent-Length: %d\nContent-Type: text/html; charset=utf-8\nConnection: close\n\n"
-#define LED_TEST_BODY "<html><head><style>body{font-family:Arial;margin:40px;}.box{border:1px solid #ccc;padding:20px;margin:20px 0;border-radius:5px;}h2{margin-top:0;}</style></head><body><h1>OpenTrickler WiFi Config</h1><div class='box'><h2>LED Control</h2><p>LED is %s</p><p><a href=\"?led=%d\"><button>Turn LED %s</button></a></p></div><div class='box'><h2>WiFi Settings</h2><p><strong>Current SSID:</strong> %s</p><form method='get'><input type='text' name='ssid' placeholder='New SSID' maxlength='32'><br><br><input type='password' name='pass' placeholder='New Password' maxlength='63'><br><br><input type='submit' value='Update WiFi'></form></div></body></html>"
-#define LED_PARAM "led=%d"
 #define LED_TEST "/ledtest"
+#define WIFI_CONFIG "/wificonfig"
 #define LED_GPIO 0
 #define HTTP_RESPONSE_REDIRECT "HTTP/1.1 302 Redirect\nLocation: http://%s" LED_TEST "\n\n"
 
-static char current_ssid[33] = "opentrickler";
-static char current_password[64] = "opentricker";
-static bool wifi_needs_restart = false;
+// HTML template with SSID display and config form
+#define PAGE_TEMPLATE "<html><head><style>body{font-family:Arial;margin:40px;}h1{color:#333;}.info{background:#f0f0f0;padding:15px;margin:10px 0;border-radius:5px;}.led{margin:20px 0;}form{background:#e8f4f8;padding:20px;border-radius:5px;margin:20px 0;}input{padding:8px;margin:5px 0;width:200px;}button{background:#4CAF50;color:white;padding:10px 20px;border:none;border-radius:4px;cursor:pointer;}button:hover{background:#45a049;}</style></head><body><h1>OpenTrickler WiFi Config</h1><div class='info'><strong>Current SSID:</strong> %s</div><div class='led'><p>LED is %s</p><p><a href=\"?led=%d\"><button>Turn LED %s</button></a></p></div><form action='/wificonfig' method='get'><h3>Change WiFi Settings</h3><label>New SSID:</label><br><input type='text' name='ssid' maxlength='32' required><br><label>New Password:</label><br><input type='password' name='pass' minlength='8' maxlength='63' required><br><br><button type='submit'>Update WiFi</button></form></body></html>"
+
+#define WIFI_CONFIRM_PAGE "<html><head><meta http-equiv='refresh' content='5;url=/'></head><body><h1>WiFi Updated!</h1><p>New SSID: %s</p><p>Restarting WiFi... Device will reconnect in a few seconds.</p><p>You will be redirected automatically.</p></body></html>"
+
+// Global WiFi config
+static char current_ssid[33];
+static char current_password[64];
+static bool wifi_config_changed = false;
 
 typedef struct TCP_SERVER_T_ {
     struct tcp_pcb *server_pcb;
@@ -40,12 +45,35 @@ typedef struct TCP_SERVER_T_ {
 typedef struct TCP_CONNECT_STATE_T_ {
     struct tcp_pcb *pcb;
     int sent_len;
-    char headers[128];
-    char result[256];
+    char headers[512];
+    char result[1024];
     int header_len;
     int result_len;
     ip_addr_t *gw;
 } TCP_CONNECT_STATE_T;
+
+// URL decode helper
+static void url_decode(char *dst, const char *src) {
+    char a, b;
+    while (*src) {
+        if (*src == '%' && ((a = src[1]) && (b = src[2])) && (isxdigit(a) && isxdigit(b))) {
+            if (a >= 'a') a -= 'a'-'A';
+            if (a >= 'A') a -= ('A' - 10);
+            else a -= '0';
+            if (b >= 'a') b -= 'a'-'A';
+            if (b >= 'A') b -= ('A' - 10);
+            else b -= '0';
+            *dst++ = 16*a+b;
+            src+=3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
 
 static err_t tcp_close_client_connection(TCP_CONNECT_STATE_T *con_state, struct tcp_pcb *client_pcb, err_t close_err) {
     if (client_pcb) {
@@ -89,7 +117,55 @@ static err_t tcp_server_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
 
 static int test_server_content(const char *request, const char *params, char *result, size_t max_result_len) {
     int len = 0;
-    if (strncmp(request, LED_TEST, sizeof(LED_TEST) - 1) == 0) {
+
+    // Handle WiFi config page
+    if (strncmp(request, WIFI_CONFIG, sizeof(WIFI_CONFIG) - 1) == 0) {
+        if (params) {
+            char new_ssid[33] = {0};
+            char new_pass[64] = {0};
+            char *ssid_param = strstr(params, "ssid=");
+            char *pass_param = strstr(params, "pass=");
+
+            if (ssid_param && pass_param) {
+                // Extract SSID
+                ssid_param += 5; // skip "ssid="
+                char *ssid_end = strchr(ssid_param, '&');
+                if (ssid_end) {
+                    size_t ssid_len = ssid_end - ssid_param;
+                    if (ssid_len < sizeof(new_ssid)) {
+                        strncpy(new_ssid, ssid_param, ssid_len);
+                        url_decode(new_ssid, new_ssid);
+                    }
+                }
+
+                // Extract password
+                pass_param += 5; // skip "pass="
+                char *pass_end = strchr(pass_param, '&');
+                if (!pass_end) pass_end = strchr(pass_param, ' ');
+                if (pass_end) {
+                    size_t pass_len = pass_end - pass_param;
+                    if (pass_len < sizeof(new_pass)) {
+                        strncpy(new_pass, pass_param, pass_len);
+                        url_decode(new_pass, new_pass);
+                    }
+                } else {
+                    strncpy(new_pass, pass_param, sizeof(new_pass) - 1);
+                    url_decode(new_pass, new_pass);
+                }
+
+                if (strlen(new_ssid) > 0 && strlen(new_pass) >= 8) {
+                    strncpy(current_ssid, new_ssid, sizeof(current_ssid) - 1);
+                    strncpy(current_password, new_pass, sizeof(current_password) - 1);
+                    wifi_config_changed = true;
+
+                    len = snprintf(result, max_result_len, WIFI_CONFIRM_PAGE, current_ssid);
+                    DEBUG_printf("WiFi config updated: SSID=%s\n", current_ssid);
+                }
+            }
+        }
+    }
+    // Handle LED test page
+    else if (strncmp(request, LED_TEST, sizeof(LED_TEST) - 1) == 0 || strcmp(request, "/") == 0) {
         // Get the state of the led
         bool value;
         cyw43_gpio_get(&cyw43_state, LED_GPIO, &value);
@@ -97,66 +173,17 @@ static int test_server_content(const char *request, const char *params, char *re
 
         // See if the user changed it
         if (params) {
-            // Check for LED parameter
-            int led_param = sscanf(params, LED_PARAM, &led_state);
-            if (led_param == 1) {
-                if (led_state) {
-                    cyw43_gpio_set(&cyw43_state, LED_GPIO, true);
-                } else {
-                    cyw43_gpio_set(&cyw43_state, LED_GPIO, false);
-                }
-            }
-
-            // Check for WiFi config parameters
-            char new_ssid[33] = {0};
-            char new_pass[64] = {0};
-            char *ssid_start = strstr(params, "ssid=");
-            char *pass_start = strstr(params, "pass=");
-
-            if (ssid_start && pass_start) {
-                ssid_start += 5; // Skip "ssid="
-                pass_start += 5; // Skip "pass="
-
-                // Extract SSID (terminated by & or end of string)
-                char *ssid_end = strchr(ssid_start, '&');
-                int ssid_len;
-                if (ssid_end) {
-                    ssid_len = ssid_end - ssid_start;
-                } else {
-                    ssid_len = strlen(ssid_start);
-                }
-                if (ssid_len > 0 && ssid_len < 33) {
-                    strncpy(new_ssid, ssid_start, ssid_len);
-                    new_ssid[ssid_len] = '\0';
-                }
-
-                // Extract Password (terminated by & or end of string)
-                char *pass_end = strchr(pass_start, '&');
-                int pass_len;
-                if (pass_end) {
-                    pass_len = pass_end - pass_start;
-                } else {
-                    pass_len = strlen(pass_start);
-                }
-                if (pass_len > 0 && pass_len < 64) {
-                    strncpy(new_pass, pass_start, pass_len);
-                    new_pass[pass_len] = '\0';
-                }
-
-                // Update WiFi credentials if both provided
-                if (strlen(new_ssid) > 0 && strlen(new_pass) > 0) {
-                    strcpy(current_ssid, new_ssid);
-                    strcpy(current_password, new_pass);
-                    wifi_needs_restart = true;
-                    printf("WiFi config updated: SSID=%s\n", current_ssid);
-                }
+            char led_param_str[32];
+            if (sscanf(params, "led=%d", &led_state) == 1) {
+                cyw43_gpio_set(&cyw43_state, LED_GPIO, led_state ? true : false);
             }
         }
-        // Generate result
+
+        // Generate result with current SSID
         if (led_state) {
-            len = snprintf(result, max_result_len, LED_TEST_BODY, "ON", 0, "OFF", current_ssid);
+            len = snprintf(result, max_result_len, PAGE_TEMPLATE, current_ssid, "ON", 0, "OFF");
         } else {
-            len = snprintf(result, max_result_len, LED_TEST_BODY, "OFF", 1, "ON", current_ssid);
+            len = snprintf(result, max_result_len, PAGE_TEMPLATE, current_ssid, "OFF", 1, "ON");
         }
     }
     return len;
@@ -171,11 +198,7 @@ err_t tcp_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
     assert(con_state && con_state->pcb == pcb);
     if (p->tot_len > 0) {
         DEBUG_printf("tcp_server_recv %d err %d\n", p->tot_len, err);
-#if 0
-        for (struct pbuf *q = p; q != NULL; q = q->next) {
-            DEBUG_printf("in: %.*s\n", q->len, q->payload);
-        }
-#endif
+
         // Copy the request into the buffer
         pbuf_copy_partial(p, con_state->headers, p->tot_len > sizeof(con_state->headers) - 1 ? sizeof(con_state->headers) - 1 : p->tot_len, 0);
 
@@ -247,7 +270,7 @@ err_t tcp_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 static err_t tcp_server_poll(void *arg, struct tcp_pcb *pcb) {
     TCP_CONNECT_STATE_T *con_state = (TCP_CONNECT_STATE_T*)arg;
     DEBUG_printf("tcp_server_poll_fn\n");
-    return tcp_close_client_connection(con_state, pcb, ERR_OK); // Just disconnect clent?
+    return tcp_close_client_connection(con_state, pcb, ERR_OK);
 }
 
 static void tcp_server_err(void *arg, err_t err) {
@@ -272,7 +295,7 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *client_pcb, err_t err)
         DEBUG_printf("failed to allocate connect state\n");
         return ERR_MEM;
     }
-    con_state->pcb = client_pcb; // for checking
+    con_state->pcb = client_pcb;
     con_state->gw = &state->gw;
 
     // setup connection to client
@@ -320,7 +343,7 @@ static bool tcp_server_open(void *arg, const char *ap_name) {
 void key_pressed_func(void *param) {
     assert(param);
     TCP_SERVER_T *state = (TCP_SERVER_T*)param;
-    int key = getchar_timeout_us(0); // get any pending key press but don't wait
+    int key = getchar_timeout_us(0);
     if (key == 'd' || key == 'D') {
         cyw43_arch_lwip_begin();
         cyw43_arch_disable_ap_mode();
@@ -343,22 +366,14 @@ int main() {
         return 1;
     }
 
+    // Initialize WiFi config from defaults
+    strncpy(current_ssid, WIFI_AP_SSID, sizeof(current_ssid) - 1);
+    strncpy(current_password, WIFI_AP_PASSWORD, sizeof(current_password) - 1);
+
     // Get notified if the user presses a key
     stdio_set_chars_available_callback(key_pressed_func, state);
 
-    const char *ap_name = "opentrickler";
-#if 1
-    const char *password = "opentricker";
-#else
-    const char *password = NULL;
-#endif
-
-    cyw43_arch_enable_ap_mode(ap_name, password, CYW43_AUTH_WPA3_WPA2_AES_PSK);
-
-    // Initialize mDNS responder
-    mdns_resp_init();
-    mdns_resp_add_netif(&cyw43_state.netif[CYW43_ITF_AP], "opentrickler");
-    printf("mDNS responder started on opentrickler.local\n");
+    cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
 
     #if LWIP_IPV6
     #define IP(x) ((x).u_addr.ip4)
@@ -380,60 +395,41 @@ int main() {
     dns_server_t dns_server;
     dns_server_init(&dns_server, &state->gw);
 
-    if (!tcp_server_open(state, ap_name)) {
+    if (!tcp_server_open(state, current_ssid)) {
         DEBUG_printf("failed to open server\n");
         return 1;
     }
 
     state->complete = false;
     while(!state->complete) {
-        // Check if WiFi needs to be restarted with new credentials
-        if (wifi_needs_restart) {
-            printf("Restarting AP with new credentials...\n");
+        // Check if WiFi config changed
+        if (wifi_config_changed) {
+            printf("WiFi config changed, restarting AP with new settings...\n");
+            wifi_config_changed = false;
 
-            // Close everything
+            // Give time for response to be sent
+            sleep_ms(2000);
+
+            // Restart WiFi with new settings
             tcp_server_close(state);
-            dns_server_deinit(&dns_server);
-            dhcp_server_deinit(&dhcp_server);
-
             cyw43_arch_lwip_begin();
             cyw43_arch_disable_ap_mode();
+            sleep_ms(1000);
+            cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
             cyw43_arch_lwip_end();
-
             sleep_ms(1000);
 
-            // Restart with new credentials
-            cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA3_WPA2_AES_PSK);
-
-            mdns_resp_init();
-            mdns_resp_add_netif(&cyw43_state.netif[CYW43_ITF_AP], current_ssid);
-            printf("mDNS responder restarted on %s.local\n", current_ssid);
-
-            dhcp_server_init(&dhcp_server, &state->gw, &mask);
-            dns_server_init(&dns_server, &state->gw);
-
+            // Restart server
             if (!tcp_server_open(state, current_ssid)) {
                 DEBUG_printf("failed to reopen server\n");
                 break;
             }
-
-            wifi_needs_restart = false;
-            printf("AP restarted successfully\n");
         }
 
-        // the following #ifdef is only here so this same example can be used in multiple modes;
-        // you do not need it in your code
 #if PICO_CYW43_ARCH_POLL
-        // if you are using pico_cyw43_arch_poll, then you must poll periodically from your
-        // main loop (not from a timer interrupt) to check for Wi-Fi driver or lwIP work that needs to be done.
         cyw43_arch_poll();
-        // you can poll as often as you like, however if you have nothing else to do you can
-        // choose to sleep until either a specified time, or cyw43_arch_poll() has work to do:
         cyw43_arch_wait_for_work_until(make_timeout_time_ms(1000));
 #else
-        // if you are not using pico_cyw43_arch_poll, then Wi-FI driver and lwIP work
-        // is done via interrupt in the background. This sleep is just an example of some (blocking)
-        // work you might be doing.
         sleep_ms(1000);
 #endif
     }
