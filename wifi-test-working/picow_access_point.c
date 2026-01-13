@@ -373,7 +373,7 @@ int main() {
     // Get notified if the user presses a key
     stdio_set_chars_available_callback(key_pressed_func, state);
 
-    cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA3_WPA2_AES_PSK);
+    cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
 
     #if LWIP_IPV6
     #define IP(x) ((x).u_addr.ip4)
@@ -415,7 +415,7 @@ int main() {
             cyw43_arch_lwip_begin();
             cyw43_arch_disable_ap_mode();
             sleep_ms(1000);
-            cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA3_WPA2_AES_PSK);
+            cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
             cyw43_arch_lwip_end();
             sleep_ms(1000);
 
