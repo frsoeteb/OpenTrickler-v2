@@ -15,8 +15,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
 
     - name: Install Build Dependencies
       run: |
@@ -31,6 +29,10 @@ jobs:
         git submodule update --init --depth 1 lib/cyw43-driver
         git submodule update --init --depth 1 lib/lwip
         git submodule update --init --depth 1 lib/mbedtls
+
+    - name: Clone FreeRTOS-Kernel
+      run: |
+        git clone -b smp https://github.com/FreeRTOS/FreeRTOS-Kernel.git --recurse-submodules library/FreeRTOS-Kernel
 
     - name: Build WiFi Test for Pico 2W
       run: |
