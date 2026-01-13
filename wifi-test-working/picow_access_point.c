@@ -117,18 +117,27 @@ static int test_server_content(const char *request, const char *params, char *re
                 ssid_start += 5; // Skip "ssid="
                 pass_start += 5; // Skip "pass="
 
-                // Extract SSID
+                // Extract SSID (terminated by & or end of string)
                 char *ssid_end = strchr(ssid_start, '&');
+                int ssid_len;
                 if (ssid_end) {
-                    int ssid_len = ssid_end - ssid_start;
-                    if (ssid_len > 0 && ssid_len < 33) {
-                        strncpy(new_ssid, ssid_start, ssid_len);
-                        new_ssid[ssid_len] = '\0';
-                    }
+                    ssid_len = ssid_end - ssid_start;
+                } else {
+                    ssid_len = strlen(ssid_start);
+                }
+                if (ssid_len > 0 && ssid_len < 33) {
+                    strncpy(new_ssid, ssid_start, ssid_len);
+                    new_ssid[ssid_len] = '\0';
                 }
 
-                // Extract Password
-                int pass_len = strlen(pass_start);
+                // Extract Password (terminated by & or end of string)
+                char *pass_end = strchr(pass_start, '&');
+                int pass_len;
+                if (pass_end) {
+                    pass_len = pass_end - pass_start;
+                } else {
+                    pass_len = strlen(pass_start);
+                }
                 if (pass_len > 0 && pass_len < 64) {
                     strncpy(new_pass, pass_start, pass_len);
                     new_pass[pass_len] = '\0';

@@ -33,7 +33,7 @@ jobs:
     - name: Build WiFi Test for Pico 2W
       run: |
         cd wifi-test-working
-        cmake -B build -DCMAKE_BUILD_TYPE=Debug -DPICO_BOARD=pico2_w
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug -DPICO_BOARD=pico2_w
         cmake --build build --config Debug
 
     - name: Archive WiFi Test Artifact
