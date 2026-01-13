@@ -32,6 +32,9 @@ target_include_directories(picow_access_point PRIVATE
 target_link_libraries(picow_access_point
     pico_cyw43_arch_lwip_threadsafe_background
     pico_stdlib
+    hardware_flash
+    hardware_sync
+    hardware_watchdog
 )
 
 # Configure IP address for access point (192.168.4.1)

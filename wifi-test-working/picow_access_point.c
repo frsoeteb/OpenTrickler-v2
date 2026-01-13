@@ -8,6 +8,9 @@
 
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
+#include "hardware/flash.h"
+#include "hardware/sync.h"
+#include "hardware/watchdog.h"
 
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
@@ -23,18 +26,38 @@
 #define HTTP_RESPONSE_HEADERS "HTTP/1.1 %d OK\nContent-Length: %d\nContent-Type: text/html; charset=utf-8\nConnection: close\n\n"
 #define LED_TEST "/ledtest"
 #define WIFI_CONFIG "/wificonfig"
+#define FORGET_WIFI "/forgetwifi"
 #define LED_GPIO 0
 #define HTTP_RESPONSE_REDIRECT "HTTP/1.1 302 Redirect\nLocation: http://%s" LED_TEST "\n\n"
 
-// HTML template with SSID display and config form
-#define PAGE_TEMPLATE "<html><head><style>body{font-family:Arial;margin:40px;}h1{color:#333;}.info{background:#f0f0f0;padding:15px;margin:10px 0;border-radius:5px;}.led{margin:20px 0;}form{background:#e8f4f8;padding:20px;border-radius:5px;margin:20px 0;}input{padding:8px;margin:5px 0;width:200px;}button{background:#4CAF50;color:white;padding:10px 20px;border:none;border-radius:4px;cursor:pointer;}button:hover{background:#45a049;}</style></head><body><h1>OpenTrickler WiFi Config</h1><div class='info'><strong>Current SSID:</strong> %s</div><div class='led'><p>LED is %s</p><p><a href=\"?led=%d\"><button>Turn LED %s</button></a></p></div><form action='/wificonfig' method='get'><h3>Change WiFi Settings</h3><label>New SSID:</label><br><input type='text' name='ssid' maxlength='32' required><br><label>New Password:</label><br><input type='password' name='pass' minlength='8' maxlength='63' required><br><br><button type='submit'>Update WiFi</button></form></body></html>"
+// Flash storage configuration (using official Raspberry Pi approach)
+// RP2350 has 4MB flash, use last sector for config storage
+#define FLASH_TARGET_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
+#define CONFIG_MAGIC 0x57494649  // "WIFI" in hex
 
-#define WIFI_CONFIRM_PAGE "<html><head><meta http-equiv='refresh' content='5;url=/'></head><body><h1>WiFi Updated!</h1><p>New SSID: %s</p><p>Restarting WiFi... Device will reconnect in a few seconds.</p><p>You will be redirected automatically.</p></body></html>"
+// WiFi credentials structure for flash storage
+typedef struct {
+    uint32_t magic;           // Magic number to verify valid config
+    char home_ssid[33];       // Home WiFi SSID
+    char home_password[64];   // Home WiFi password
+    uint32_t checksum;        // Simple checksum for validation
+} wifi_credentials_t;
+
+// HTML template with home WiFi config, AP config, and LED control
+#define PAGE_TEMPLATE "<html><head><style>body{font-family:Arial;margin:40px;}h1{color:#333;}.info{background:#f0f0f0;padding:15px;margin:10px 0;border-radius:5px;}.led{margin:20px 0;}form{background:#e8f4f8;padding:20px;border-radius:5px;margin:20px 0;}input{padding:8px;margin:5px 0;width:200px;}button{background:#4CAF50;color:white;padding:10px 20px;border:none;border-radius:4px;cursor:pointer;margin-right:10px;}button:hover{background:#45a049;}button.danger{background:#f44336;}button.danger:hover{background:#da190b;}</style></head><body><h1>OpenTrickler WiFi Config</h1><div class='info'><strong>Current Mode:</strong> %s<br><strong>Current SSID:</strong> %s<br>%s</div><div class='led'><p>LED is %s</p><p><a href=\"?led=%d\"><button>Turn LED %s</button></a></p></div><form action='/wificonfig' method='get'><h3>Home WiFi Settings</h3><p>Configure your home WiFi network. Device will try to connect to this network on boot.</p><label>Home SSID:</label><br><input type='text' name='home_ssid' maxlength='32' value='%s' placeholder='Enter home WiFi SSID'><br><label>Home Password:</label><br><input type='password' name='home_pass' minlength='8' maxlength='63' placeholder='Enter home WiFi password'><br><br><button type='submit'>Save & Reboot</button></form><p><a href='/forgetwifi'><button class='danger'>Forget Home WiFi</button></a></p><form action='/wificonfig' method='get'><h3>Access Point Settings</h3><p>Change the fallback Access Point credentials.</p><label>AP SSID:</label><br><input type='text' name='ap_ssid' maxlength='32' value='%s' required><br><label>AP Password:</label><br><input type='password' name='ap_pass' minlength='8' maxlength='63' placeholder='Enter new AP password'><br><br><button type='submit'>Update AP</button></form></body></html>"
+
+#define WIFI_CONFIRM_PAGE "<html><head><meta http-equiv='refresh' content='10;url=/'></head><body><h1>WiFi Settings Saved!</h1><p>%s</p><p>Device is rebooting... Please wait 10 seconds then reconnect.</p></body></html>"
+
+#define FORGET_CONFIRM_PAGE "<html><head><meta http-equiv='refresh' content='5;url=/'></head><body><h1>Home WiFi Forgotten</h1><p>Device is rebooting in AP mode...</p><p>Connect to AP: %s</p></body></html>"
 
 // Global WiFi config
-static char current_ssid[33];
-static char current_password[64];
+static char current_ssid[33];        // Current AP SSID
+static char current_password[64];    // Current AP password
+static char home_ssid[33];           // Home WiFi SSID
+static char home_password[64];       // Home WiFi password
 static bool wifi_config_changed = false;
+static bool need_reboot = false;
+static bool connected_to_home = false;
 
 typedef struct TCP_SERVER_T_ {
     struct tcp_pcb *server_pcb;
@@ -73,6 +96,107 @@ static void url_decode(char *dst, const char *src) {
         }
     }
     *dst = '\0';
+}
+
+// Flash storage functions (based on official Raspberry Pi pico-examples/flash/program)
+
+// Calculate simple checksum
+static uint32_t calculate_checksum(const wifi_credentials_t *creds) {
+    uint32_t sum = creds->magic;
+    for (int i = 0; i < sizeof(creds->home_ssid); i++) {
+        sum += creds->home_ssid[i];
+    }
+    for (int i = 0; i < sizeof(creds->home_password); i++) {
+        sum += creds->home_password[i];
+    }
+    return sum;
+}
+
+// Read WiFi credentials from flash
+static bool read_wifi_credentials(wifi_credentials_t *creds) {
+    const uint8_t *flash_target_contents = (const uint8_t *)(XIP_BASE + FLASH_TARGET_OFFSET);
+    memcpy(creds, flash_target_contents, sizeof(wifi_credentials_t));
+
+    // Verify magic and checksum
+    if (creds->magic != CONFIG_MAGIC) {
+        DEBUG_printf("No valid WiFi config in flash (bad magic: 0x%08x)\n", creds->magic);
+        return false;
+    }
+
+    uint32_t expected_checksum = calculate_checksum(creds);
+    if (creds->checksum != expected_checksum) {
+        DEBUG_printf("WiFi config checksum mismatch\n");
+        return false;
+    }
+
+    DEBUG_printf("Valid WiFi config found in flash\n");
+    return true;
+}
+
+// Flash erase callback (based on official Raspberry Pi example)
+static void flash_erase_callback(void *param) {
+    uint32_t offset = (uint32_t)(uintptr_t)param;
+    flash_range_erase(offset, FLASH_SECTOR_SIZE);
+}
+
+// Flash program callback (based on official Raspberry Pi example)
+static void flash_program_callback(void *param) {
+    void **params = (void **)param;
+    uint32_t offset = (uint32_t)(uintptr_t)params[0];
+    const uint8_t *data = (const uint8_t *)params[1];
+    flash_range_program(offset, data, FLASH_PAGE_SIZE);
+}
+
+// Write WiFi credentials to flash (using official Raspberry Pi approach)
+static bool write_wifi_credentials(const wifi_credentials_t *creds) {
+    wifi_credentials_t creds_to_write = *creds;
+    creds_to_write.magic = CONFIG_MAGIC;
+    creds_to_write.checksum = calculate_checksum(&creds_to_write);
+
+    DEBUG_printf("Writing WiFi credentials to flash...\n");
+
+    // Disable interrupts during flash operations (official approach)
+    uint32_t ints = save_and_disable_interrupts();
+
+    // Erase the flash sector
+    flash_safe_execute(flash_erase_callback, (void *)(uintptr_t)FLASH_TARGET_OFFSET, UINT32_MAX);
+
+    // Write data in FLASH_PAGE_SIZE chunks
+    uint8_t buffer[FLASH_PAGE_SIZE] __attribute__((aligned(4))) = {0};
+    size_t bytes_to_write = sizeof(wifi_credentials_t);
+    size_t offset = 0;
+
+    while (bytes_to_write > 0) {
+        size_t chunk_size = (bytes_to_write < FLASH_PAGE_SIZE) ? bytes_to_write : FLASH_PAGE_SIZE;
+        memset(buffer, 0, FLASH_PAGE_SIZE);
+        memcpy(buffer, ((uint8_t *)&creds_to_write) + offset, chunk_size);
+
+        void *params[2] = {
+            (void *)(uintptr_t)(FLASH_TARGET_OFFSET + offset),
+            (void *)buffer
+        };
+        flash_safe_execute(flash_program_callback, params, UINT32_MAX);
+
+        offset += chunk_size;
+        bytes_to_write -= chunk_size;
+    }
+
+    restore_interrupts(ints);
+
+    DEBUG_printf("WiFi credentials written successfully\n");
+    return true;
+}
+
+// Erase WiFi credentials from flash
+static bool erase_wifi_credentials(void) {
+    DEBUG_printf("Erasing WiFi credentials from flash...\n");
+
+    uint32_t ints = save_and_disable_interrupts();
+    flash_safe_execute(flash_erase_callback, (void *)(uintptr_t)FLASH_TARGET_OFFSET, UINT32_MAX);
+    restore_interrupts(ints);
+
+    DEBUG_printf("WiFi credentials erased\n");
+    return true;
 }
 
 static err_t tcp_close_client_connection(TCP_CONNECT_STATE_T *con_state, struct tcp_pcb *client_pcb, err_t close_err) {
@@ -118,48 +242,112 @@ static err_t tcp_server_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
 static int test_server_content(const char *request, const char *params, char *result, size_t max_result_len) {
     int len = 0;
 
+    // Handle "Forget WiFi" request
+    if (strncmp(request, FORGET_WIFI, sizeof(FORGET_WIFI) - 1) == 0) {
+        erase_wifi_credentials();
+        len = snprintf(result, max_result_len, FORGET_CONFIRM_PAGE, current_ssid);
+        need_reboot = true;
+        return len;
+    }
+
     // Handle WiFi config page
     if (strncmp(request, WIFI_CONFIG, sizeof(WIFI_CONFIG) - 1) == 0) {
         if (params) {
-            char new_ssid[33] = {0};
-            char new_pass[64] = {0};
-            char *ssid_param = strstr(params, "ssid=");
-            char *pass_param = strstr(params, "pass=");
+            char new_home_ssid[33] = {0};
+            char new_home_pass[64] = {0};
+            char new_ap_ssid[33] = {0};
+            char new_ap_pass[64] = {0};
 
-            if (ssid_param && pass_param) {
-                // Extract SSID
-                ssid_param += 5; // skip "ssid="
-                char *ssid_end = strchr(ssid_param, '&');
-                if (ssid_end) {
-                    size_t ssid_len = ssid_end - ssid_param;
-                    if (ssid_len < sizeof(new_ssid)) {
-                        strncpy(new_ssid, ssid_param, ssid_len);
-                        url_decode(new_ssid, new_ssid);
-                    }
-                }
+            char *home_ssid_param = strstr(params, "home_ssid=");
+            char *home_pass_param = strstr(params, "home_pass=");
+            char *ap_ssid_param = strstr(params, "ap_ssid=");
+            char *ap_pass_param = strstr(params, "ap_pass=");
 
-                // Extract password
-                pass_param += 5; // skip "pass="
-                char *pass_end = strchr(pass_param, '&');
-                if (!pass_end) pass_end = strchr(pass_param, ' ');
-                if (pass_end) {
-                    size_t pass_len = pass_end - pass_param;
-                    if (pass_len < sizeof(new_pass)) {
-                        strncpy(new_pass, pass_param, pass_len);
-                        url_decode(new_pass, new_pass);
+            // Handle home WiFi configuration
+            if (home_ssid_param && home_pass_param) {
+                // Extract home SSID
+                home_ssid_param += 10; // skip "home_ssid="
+                char *home_ssid_end = strchr(home_ssid_param, '&');
+                if (!home_ssid_end) home_ssid_end = strchr(home_ssid_param, ' ');
+                if (home_ssid_end) {
+                    size_t ssid_len = home_ssid_end - home_ssid_param;
+                    if (ssid_len < sizeof(new_home_ssid)) {
+                        strncpy(new_home_ssid, home_ssid_param, ssid_len);
                     }
                 } else {
-                    strncpy(new_pass, pass_param, sizeof(new_pass) - 1);
-                    url_decode(new_pass, new_pass);
+                    strncpy(new_home_ssid, home_ssid_param, sizeof(new_home_ssid) - 1);
                 }
+                url_decode(new_home_ssid, new_home_ssid);
 
-                if (strlen(new_ssid) > 0 && strlen(new_pass) >= 8) {
-                    strncpy(current_ssid, new_ssid, sizeof(current_ssid) - 1);
-                    strncpy(current_password, new_pass, sizeof(current_password) - 1);
+                // Extract home password
+                home_pass_param += 10; // skip "home_pass="
+                char *home_pass_end = strchr(home_pass_param, '&');
+                if (!home_pass_end) home_pass_end = strchr(home_pass_param, ' ');
+                if (home_pass_end) {
+                    size_t pass_len = home_pass_end - home_pass_param;
+                    if (pass_len < sizeof(new_home_pass)) {
+                        strncpy(new_home_pass, home_pass_param, pass_len);
+                    }
+                } else {
+                    strncpy(new_home_pass, home_pass_param, sizeof(new_home_pass) - 1);
+                }
+                url_decode(new_home_pass, new_home_pass);
+
+                // Save to flash and reboot if valid
+                if (strlen(new_home_ssid) > 0 && strlen(new_home_pass) >= 8) {
+                    wifi_credentials_t creds = {0};
+                    strncpy(creds.home_ssid, new_home_ssid, sizeof(creds.home_ssid) - 1);
+                    strncpy(creds.home_password, new_home_pass, sizeof(creds.home_password) - 1);
+
+                    if (write_wifi_credentials(&creds)) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg), "Home WiFi saved: %s", new_home_ssid);
+                        len = snprintf(result, max_result_len, WIFI_CONFIRM_PAGE, msg);
+                        need_reboot = true;
+                        DEBUG_printf("Home WiFi credentials saved to flash: %s\n", new_home_ssid);
+                    }
+                }
+            }
+            // Handle AP configuration
+            else if (ap_ssid_param && ap_pass_param) {
+                // Extract AP SSID
+                ap_ssid_param += 8; // skip "ap_ssid="
+                char *ap_ssid_end = strchr(ap_ssid_param, '&');
+                if (!ap_ssid_end) ap_ssid_end = strchr(ap_ssid_param, ' ');
+                if (ap_ssid_end) {
+                    size_t ssid_len = ap_ssid_end - ap_ssid_param;
+                    if (ssid_len < sizeof(new_ap_ssid)) {
+                        strncpy(new_ap_ssid, ap_ssid_param, ssid_len);
+                    }
+                } else {
+                    strncpy(new_ap_ssid, ap_ssid_param, sizeof(new_ap_ssid) - 1);
+                }
+                url_decode(new_ap_ssid, new_ap_ssid);
+
+                // Extract AP password
+                ap_pass_param += 8; // skip "ap_pass="
+                char *ap_pass_end = strchr(ap_pass_param, '&');
+                if (!ap_pass_end) ap_pass_end = strchr(ap_pass_param, ' ');
+                if (ap_pass_end) {
+                    size_t pass_len = ap_pass_end - ap_pass_param;
+                    if (pass_len < sizeof(new_ap_pass)) {
+                        strncpy(new_ap_pass, ap_pass_param, pass_len);
+                    }
+                } else {
+                    strncpy(new_ap_pass, ap_pass_param, sizeof(new_ap_pass) - 1);
+                }
+                url_decode(new_ap_pass, new_ap_pass);
+
+                // Update AP credentials if valid
+                if (strlen(new_ap_ssid) > 0 && strlen(new_ap_pass) >= 8) {
+                    strncpy(current_ssid, new_ap_ssid, sizeof(current_ssid) - 1);
+                    strncpy(current_password, new_ap_pass, sizeof(current_password) - 1);
                     wifi_config_changed = true;
 
-                    len = snprintf(result, max_result_len, WIFI_CONFIRM_PAGE, current_ssid);
-                    DEBUG_printf("WiFi config updated: SSID=%s\n", current_ssid);
+                    char msg[128];
+                    snprintf(msg, sizeof(msg), "AP credentials updated: %s", current_ssid);
+                    len = snprintf(result, max_result_len, WIFI_CONFIRM_PAGE, msg);
+                    DEBUG_printf("AP config updated: SSID=%s\n", current_ssid);
                 }
             }
         }
@@ -173,17 +361,34 @@ static int test_server_content(const char *request, const char *params, char *re
 
         // See if the user changed it
         if (params) {
-            char led_param_str[32];
             if (sscanf(params, "led=%d", &led_state) == 1) {
                 cyw43_gpio_set(&cyw43_state, LED_GPIO, led_state ? true : false);
             }
         }
 
-        // Generate result with current SSID
-        if (led_state) {
-            len = snprintf(result, max_result_len, PAGE_TEMPLATE, current_ssid, "ON", 0, "OFF");
+        // Build the status info
+        const char *mode_str = connected_to_home ? "Home WiFi Client" : "Access Point";
+        const char *ssid_str = connected_to_home ? home_ssid : current_ssid;
+        char ip_info[128] = {0};
+        if (connected_to_home) {
+            snprintf(ip_info, sizeof(ip_info), "<strong>IP Address:</strong> %s",
+                     ip4addr_ntoa(netif_ip4_addr(netif_list)));
         } else {
-            len = snprintf(result, max_result_len, PAGE_TEMPLATE, current_ssid, "OFF", 1, "ON");
+            snprintf(ip_info, sizeof(ip_info), "<strong>AP IP:</strong> 192.168.4.1");
+        }
+
+        // Display home SSID if saved (or empty if not)
+        const char *saved_home_ssid = (strlen(home_ssid) > 0) ? home_ssid : "";
+
+        // Generate result
+        if (led_state) {
+            len = snprintf(result, max_result_len, PAGE_TEMPLATE,
+                          mode_str, ssid_str, ip_info, "ON", 0, "OFF",
+                          saved_home_ssid, current_ssid);
+        } else {
+            len = snprintf(result, max_result_len, PAGE_TEMPLATE,
+                          mode_str, ssid_str, ip_info, "OFF", 1, "ON",
+                          saved_home_ssid, current_ssid);
         }
     }
     return len;
@@ -366,34 +571,80 @@ int main() {
         return 1;
     }
 
-    // Initialize WiFi config from defaults
+    // Initialize AP config from defaults
     strncpy(current_ssid, WIFI_AP_SSID, sizeof(current_ssid) - 1);
     strncpy(current_password, WIFI_AP_PASSWORD, sizeof(current_password) - 1);
+
+    // Try to read saved home WiFi credentials from flash
+    wifi_credentials_t saved_creds = {0};
+    bool has_saved_creds = read_wifi_credentials(&saved_creds);
+
+    if (has_saved_creds) {
+        strncpy(home_ssid, saved_creds.home_ssid, sizeof(home_ssid) - 1);
+        strncpy(home_password, saved_creds.home_password, sizeof(home_password) - 1);
+        printf("Found saved home WiFi credentials: %s\n", home_ssid);
+    } else {
+        home_ssid[0] = '\0';
+        home_password[0] = '\0';
+        printf("No saved home WiFi credentials found\n");
+    }
 
     // Get notified if the user presses a key
     stdio_set_chars_available_callback(key_pressed_func, state);
 
-    cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
+    // Try to connect to home WiFi first (if saved credentials exist)
+    connected_to_home = false;
+    if (has_saved_creds && strlen(home_ssid) > 0) {
+        printf("Attempting to connect to home WiFi: %s\n", home_ssid);
+        cyw43_arch_enable_sta_mode();
 
-    #if LWIP_IPV6
-    #define IP(x) ((x).u_addr.ip4)
-    #else
-    #define IP(x) (x)
-    #endif
+        int connect_result = cyw43_arch_wifi_connect_timeout_ms(
+            home_ssid, home_password, CYW43_AUTH_WPA2_AES_PSK, 30000);
 
-    ip4_addr_t mask;
-    IP(state->gw).addr = PP_HTONL(CYW43_DEFAULT_IP_AP_ADDRESS);
-    IP(mask).addr = PP_HTONL(CYW43_DEFAULT_IP_MASK);
+        if (connect_result == 0) {
+            printf("Connected to home WiFi successfully!\n");
+            printf("IP Address: %s\n", ip4addr_ntoa(netif_ip4_addr(netif_list)));
+            connected_to_home = true;
+        } else {
+            printf("Failed to connect to home WiFi (error %d), falling back to AP mode\n", connect_result);
+            cyw43_arch_lwip_begin();
+            cyw43_arch_disable_sta_mode();
+            cyw43_arch_lwip_end();
+        }
+    }
 
-    #undef IP
+    // If not connected to home WiFi, enable AP mode
+    if (!connected_to_home) {
+        printf("Starting Access Point mode: %s\n", current_ssid);
+        cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
+    }
 
-    // Start the dhcp server
+    // DHCP and DNS servers only needed in AP mode
     dhcp_server_t dhcp_server;
-    dhcp_server_init(&dhcp_server, &state->gw, &mask);
-
-    // Start the dns server
     dns_server_t dns_server;
-    dns_server_init(&dns_server, &state->gw);
+
+    if (!connected_to_home) {
+        #if LWIP_IPV6
+        #define IP(x) ((x).u_addr.ip4)
+        #else
+        #define IP(x) (x)
+        #endif
+
+        ip4_addr_t mask;
+        IP(state->gw).addr = PP_HTONL(CYW43_DEFAULT_IP_AP_ADDRESS);
+        IP(mask).addr = PP_HTONL(CYW43_DEFAULT_IP_MASK);
+
+        #undef IP
+
+        // Start the dhcp server
+        dhcp_server_init(&dhcp_server, &state->gw, &mask);
+
+        // Start the dns server
+        dns_server_init(&dns_server, &state->gw);
+    } else {
+        // In client mode, use the router's IP as gateway
+        state->gw = *netif_ip4_gw(netif_list);
+    }
 
     if (!tcp_server_open(state, current_ssid)) {
         DEBUG_printf("failed to open server\n");
@@ -402,9 +653,27 @@ int main() {
 
     state->complete = false;
     while(!state->complete) {
-        // Check if WiFi config changed
+        // Check if reboot is needed (after saving/forgetting credentials)
+        if (need_reboot) {
+            printf("Rebooting to apply new WiFi settings...\n");
+            sleep_ms(3000);  // Give time for HTTP response to be sent
+
+            // Clean up
+            tcp_server_close(state);
+            if (!connected_to_home) {
+                dns_server_deinit(&dns_server);
+                dhcp_server_deinit(&dhcp_server);
+            }
+            cyw43_arch_deinit();
+
+            // Trigger watchdog reset to reboot
+            watchdog_enable(1, 1);
+            while(1);
+        }
+
+        // Check if WiFi config changed (AP credentials only)
         if (wifi_config_changed) {
-            printf("WiFi config changed, restarting AP with new settings...\n");
+            printf("AP config changed, restarting AP with new settings...\n");
             wifi_config_changed = false;
 
             // Give time for response to be sent
@@ -434,8 +703,10 @@ int main() {
 #endif
     }
     tcp_server_close(state);
-    dns_server_deinit(&dns_server);
-    dhcp_server_deinit(&dhcp_server);
+    if (!connected_to_home) {
+        dns_server_deinit(&dns_server);
+        dhcp_server_deinit(&dhcp_server);
+    }
     cyw43_arch_deinit();
     printf("Test complete\n");
     return 0;
