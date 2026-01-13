@@ -16,7 +16,7 @@ set(CMAKE_CXX_STANDARD 17)
 # Initialize the SDK
 pico_sdk_init()
 
-# Build the access point example (background threadsafe version)
+# Build the access point example (FreeRTOS version)
 add_executable(picow_access_point
     picow_access_point.c
     dhcpserver/dhcpserver.c
@@ -30,16 +30,18 @@ target_include_directories(picow_access_point PRIVATE
 )
 
 target_link_libraries(picow_access_point
-    pico_cyw43_arch_lwip_threadsafe_background
+    pico_cyw43_arch_lwip_sys_freertos
     pico_stdlib
     hardware_flash
     hardware_sync
     hardware_watchdog
+    FreeRTOS-Kernel-Heap4
 )
 
-# Configure IP address for access point (192.168.4.1)
+# Configure IP address for access point (192.168.4.1) and FreeRTOS
 target_compile_definitions(picow_access_point PRIVATE
     CYW43_DEFAULT_IP_AP_ADDRESS=0xC0A80401
+    NO_SYS=0
 )
 
 pico_add_extra_outputs(picow_access_point)

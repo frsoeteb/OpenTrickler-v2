@@ -1,5 +1,6 @@
 /**
  * WiFi configuration page with SSID display and config form
+ * FreeRTOS version based on official Raspberry Pi pico-examples
  */
 
 #include <string.h>
@@ -15,6 +16,9 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "dhcpserver.h"
 #include "dnsserver.h"
 #include "wifi_config.h"
@@ -29,6 +33,13 @@
 #define FORGET_WIFI "/forgetwifi"
 #define LED_GPIO 0
 #define HTTP_RESPONSE_REDIRECT "HTTP/1.1 302 Redirect\nLocation: http://%s" LED_TEST "\n\n"
+
+// FreeRTOS task priorities
+#define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
+
+#ifndef RUN_FREERTOS_ON_CORE
+#define RUN_FREERTOS_ON_CORE 0
+#endif
 
 // Flash storage configuration (using official Raspberry Pi approach)
 // RP2350 has 4MB flash, use last sector for config storage
@@ -557,18 +568,17 @@ void key_pressed_func(void *param) {
     }
 }
 
-int main() {
-    stdio_init_all();
-
+// FreeRTOS main task (handles WiFi connection and web server)
+void main_task(__unused void *params) {
     TCP_SERVER_T *state = calloc(1, sizeof(TCP_SERVER_T));
     if (!state) {
         DEBUG_printf("failed to allocate state\n");
-        return 1;
+        return;
     }
 
     if (cyw43_arch_init()) {
         DEBUG_printf("failed to initialise\n");
-        return 1;
+        return;
     }
 
     // Initialize AP config from defaults
@@ -648,7 +658,7 @@ int main() {
 
     if (!tcp_server_open(state, current_ssid)) {
         DEBUG_printf("failed to open server\n");
-        return 1;
+        return;
     }
 
     state->complete = false;
@@ -656,7 +666,7 @@ int main() {
         // Check if reboot is needed (after saving/forgetting credentials)
         if (need_reboot) {
             printf("Rebooting to apply new WiFi settings...\n");
-            sleep_ms(3000);  // Give time for HTTP response to be sent
+            vTaskDelay(pdMS_TO_TICKS(3000));  // Give time for HTTP response to be sent
 
             // Clean up
             tcp_server_close(state);
@@ -677,16 +687,16 @@ int main() {
             wifi_config_changed = false;
 
             // Give time for response to be sent
-            sleep_ms(2000);
+            vTaskDelay(pdMS_TO_TICKS(2000));
 
             // Restart WiFi with new settings
             tcp_server_close(state);
             cyw43_arch_lwip_begin();
             cyw43_arch_disable_ap_mode();
-            sleep_ms(1000);
+            vTaskDelay(pdMS_TO_TICKS(1000));
             cyw43_arch_enable_ap_mode(current_ssid, current_password, CYW43_AUTH_WPA2_AES_PSK);
             cyw43_arch_lwip_end();
-            sleep_ms(1000);
+            vTaskDelay(pdMS_TO_TICKS(1000));
 
             // Restart server
             if (!tcp_server_open(state, current_ssid)) {
@@ -695,19 +705,53 @@ int main() {
             }
         }
 
-#if PICO_CYW43_ARCH_POLL
-        cyw43_arch_poll();
-        cyw43_arch_wait_for_work_until(make_timeout_time_ms(1000));
-#else
-        sleep_ms(1000);
-#endif
+        // FreeRTOS delay instead of sleep_ms
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
+
     tcp_server_close(state);
     if (!connected_to_home) {
         dns_server_deinit(&dns_server);
         dhcp_server_deinit(&dhcp_server);
     }
     cyw43_arch_deinit();
-    printf("Test complete\n");
+    printf("Task complete\n");
+}
+
+// FreeRTOS launcher (based on official Raspberry Pi pico-examples)
+void vLaunch(void) {
+    TaskHandle_t task;
+    xTaskCreate(main_task, "MainThread", configMINIMAL_STACK_SIZE * 4, NULL, MAIN_TASK_PRIORITY, &task);
+
+    // Start the FreeRTOS scheduler
+    vTaskStartScheduler();
+}
+
+// Main entry point
+int main() {
+    stdio_init_all();
+
+    const char *rtos_name;
+    #if (configNUMBER_OF_CORES > 1)
+    rtos_name = "FreeRTOS SMP";
+    #else
+    rtos_name = "FreeRTOS";
+    #endif
+
+    printf("Starting %s WiFi configuration server\n", rtos_name);
+    printf("Based on official Raspberry Pi pico-examples\n");
+
+    #if (configNUMBER_OF_CORES == 2)
+    printf("Starting %s on both cores\n", rtos_name);
+    vLaunch();
+    #elif (RUN_FREERTOS_ON_CORE == 1)
+    printf("Starting %s on core 1\n", rtos_name);
+    multicore_launch_core1(vLaunch);
+    while (true);
+    #else
+    printf("Starting %s on core 0\n", rtos_name);
+    vLaunch();
+    #endif
+
     return 0;
 }
