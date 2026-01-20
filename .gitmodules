@@ -1,0 +1,3 @@
+[submodule "OpenTrickler_AI_Files_v1.17/library/lvgl"]
+	path = OpenTrickler_AI_Files_v1.17/library/lvgl
+	url = https://github.com/lvgl/lvgl.git
