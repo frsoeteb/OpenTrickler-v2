@@ -34,8 +34,8 @@ option(USE_TFT43 "Build with TFT43 V3.0 (4.3 inch, 480x272) color touch display"
 # Set flags and directory variables
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -DDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -DDEBUG")
-# Source files are at root level in v1.17
-set(SRC_DIRECTORY "${CMAKE_SOURCE_DIR}")
+# Source files are in src directory
+set(SRC_DIRECTORY "${CMAKE_SOURCE_DIR}/src")
 set(FREERTOS_SRC_DIRECTORY "${CMAKE_SOURCE_DIR}/library/FreeRTOS-Kernel")
 set(U8G2_SRC_DIRECYTORY "${CMAKE_SOURCE_DIR}/library/u8g2")
 set(U8G2_MUI_DIRECTORY "${U8G2_SRC_DIRECYTORY}/csrc")
