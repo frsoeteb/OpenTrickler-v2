@@ -31,15 +31,27 @@ As additional hardware is connected, error conditions will naturally reduce.
 5. Drag and drop `app_v2.4.0.uf2` onto the drive
 6. The Pico will automatically reboot and start the application
 
-## Download Latest Build from GitHub
+## Building with GitHub Actions
 
-No need to build yourself - GitHub automatically builds the firmware:
+The easiest way to build - no local setup required:
 
-1. Go to the [Actions tab](https://github.com/CavemansToys/OpenTrickler-v2/actions)
-2. Click on the latest successful build (green checkmark)
-3. Scroll down to "Artifacts"
-4. Download "firmware" - this contains `app.uf2`
-5. Flash as described above
+1. Fork this repository to your GitHub account
+2. Make your changes and push to your fork
+3. GitHub Actions automatically builds on every push
+4. Go to your fork's [Actions tab](../../actions)
+5. Click on the latest build run (green checkmark = success)
+6. Scroll down to "Artifacts" section
+7. Download "firmware" zip - contains `app.uf2`
+8. Extract and flash as described above
+
+To manually trigger a build without pushing changes:
+1. Go to Actions tab
+2. Select "Build Firmware" workflow
+3. Click "Run workflow" button
+
+## Download Pre-built Firmware
+
+Don't want to build? Download the latest from [Actions](https://github.com/CavemansToys/OpenTrickler-v2/actions) - click latest green build, scroll to Artifacts, download "firmware".
 
 ## Building Locally (Optional)
 
