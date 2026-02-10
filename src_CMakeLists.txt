@@ -17,8 +17,8 @@ add_custom_target(
 
 add_custom_command(
     OUTPUT "${SRC_DIRECTORY}/generated/web_portal.html.h"
-    DEPENDS "${SRC_DIRECTORY}/html/web_portal.html"
-    COMMAND "${Python_EXECUTABLE}" "${SCRIPTS_DIRECTORY}/html2header.py" -vv --no-minify -f ${SRC_DIRECTORY}/html/web_portal.html -o ${SRC_DIRECTORY}/generated/web_portal.html.h
+    DEPENDS "${CMAKE_SOURCE_DIR}/html/web_portal.html"
+    COMMAND "${Python_EXECUTABLE}" "${SCRIPTS_DIRECTORY}/html2header.py" -vv --no-minify -f ${CMAKE_SOURCE_DIR}/html/web_portal.html -o ${SRC_DIRECTORY}/generated/web_portal.html.h
     COMMENT "Generating web_portal.html header"
 )
 
@@ -35,8 +35,8 @@ add_custom_target(
 
 add_custom_command(
     OUTPUT "${SRC_DIRECTORY}/generated/display_mirror.html.h"
-    DEPENDS "${SRC_DIRECTORY}/html/display_mirror.html"
-    COMMAND "${Python_EXECUTABLE}" "${SCRIPTS_DIRECTORY}/html2header.py" -vv --no-minify -f ${SRC_DIRECTORY}/html/display_mirror.html -o ${SRC_DIRECTORY}/generated/display_mirror.html.h
+    DEPENDS "${CMAKE_SOURCE_DIR}/html/display_mirror.html"
+    COMMAND "${Python_EXECUTABLE}" "${SCRIPTS_DIRECTORY}/html2header.py" -vv --no-minify -f ${CMAKE_SOURCE_DIR}/html/display_mirror.html -o ${SRC_DIRECTORY}/generated/display_mirror.html.h
     COMMENT "Generating display_mirror.html header"
 )
 
@@ -51,8 +51,8 @@ add_custom_target(
 
 add_custom_command(
     OUTPUT "${SRC_DIRECTORY}/generated/web_portal_basic.html.h"
-    DEPENDS "${SRC_DIRECTORY}/html/web_portal_basic.html"
-    COMMAND "${Python_EXECUTABLE}" "${SCRIPTS_DIRECTORY}/html2header.py" -vv --no-minify -f ${SRC_DIRECTORY}/html/web_portal_basic.html -o ${SRC_DIRECTORY}/generated/web_portal_basic.html.h
+    DEPENDS "${CMAKE_SOURCE_DIR}/html/web_portal_basic.html"
+    COMMAND "${Python_EXECUTABLE}" "${SCRIPTS_DIRECTORY}/html2header.py" -vv --no-minify -f ${CMAKE_SOURCE_DIR}/html/web_portal_basic.html -o ${SRC_DIRECTORY}/generated/web_portal_basic.html.h
     COMMENT "Generating web_portal_basic.html header"
 )
 
